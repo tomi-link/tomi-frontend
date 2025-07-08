@@ -1,19 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
-} from 'recharts';
-import {
-  Card, Button, Spinner, Table, Alert, Form, InputGroup, Tab, Tabs, Modal,
+  Button, Spinner, Table, Alert, Form, InputGroup, Tab, Tabs, Modal,
 } from 'react-bootstrap';
 import { useAuth } from '../../context/AuthContext';
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
 
-  const [userGrowthData, setUserGrowthData] = useState([]);
-  const [salesData, setSalesData] = useState([]);
-  const [stats, setStats] = useState<any>(null);
+  const [] = useState([]);
+  const [] = useState([]);
+  const [, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const [businesses, setBusinesses] = useState<any[]>([]);
@@ -68,20 +65,6 @@ const AdminDashboard: React.FC = () => {
 
     if (token) fetchData();
   }, [token]);
-
-  const handleUserAction = async (id: string, action: string) => {
-    try {
-      await axios.put(`/api/admin/users/${id}/${action}`, {}, headers);
-      setSuccess(`User ${action}ed successfully`);
-      setUsers((prev) =>
-        prev.map((u) => u.id === id ? { ...u, status: action === 'resume' ? 'active' : action } : u)
-      );
-    } catch (err) {
-      console.error(err);
-      setError(`Failed to ${action} user.`);
-    }
-  };
-
   const handleBusinessAction = async (id: string, action: string) => {
     try {
       if (action === 'delete') {

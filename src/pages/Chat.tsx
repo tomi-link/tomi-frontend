@@ -8,7 +8,7 @@ import {
 } from 'react-icons/bs';
 import { io, Socket } from 'socket.io-client';
 import Picker from 'emoji-picker-react';
-
+import type { EmojiClickData } from 'emoji-picker-react';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 type User = {
@@ -203,10 +203,9 @@ const Chat: React.FC = () => {
     setSearchQuery('');
   };
 
-  const onEmoji = (_: any, emojiObj: { emoji: string }) => {
-    setNewMessage(prev => prev + emojiObj.emoji);
-  };
-
+  const onEmoji = (emojiData: EmojiClickData) => {
+  setNewMessage(prev => prev + emojiData.emoji);
+};
   const startRecording = () => {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
