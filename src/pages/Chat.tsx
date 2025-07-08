@@ -17,6 +17,7 @@ type User = {
   email: string;
   role?: 'admin' | 'business' | 'student';
 };
+
 type Message = {
   id: string;
   content: string;
@@ -27,6 +28,7 @@ type Message = {
   mediaUrl?: string;
   mediaType?: 'image' | 'audio';
 };
+
 type Chat = {
   id: string;
   student: User;
@@ -55,66 +57,79 @@ const Chat: React.FC = () => {
 
   const currentUser = JSON.parse(localStorage.getItem('user') || '{}') as User;
 
-  // Socket + fetch chats
   useEffect(() => {
-    socketRef.current = io(API_BASE);
-    socketRef.current.on('message', handleIncoming);
-    socketRef.current.on('typing', ({ roomId }: any) => {
+    const socket = io(API_BASE);
+    socketRef.current = socket;
+
+    socket.on('message', handleIncoming);
+    socket.on('typing', ({ roomId }: { roomId: string }) => {
       if (selectedChat?.id === roomId) {
         setIsTyping(true);
         setTimeout(() => setIsTyping(false), 1500);
       }
     });
 
-    (async () => {
+    const fetchChats = async () => {
       const token = localStorage.getItem('token');
-      const res = token ? await fetch(`${API_BASE}/api/chats`, {
+      if (!token) return setLoading(false);
+
+      const res = await fetch(`${API_BASE}/api/chats`, {
         headers: { Authorization: `Bearer ${token}` }
-      }) : null;
-      if (res?.ok) {
+      });
+
+      if (res.ok) {
         const data: Chat[] = await res.json();
         setChats(data.map(c => ({ ...c, unreadCount: 0 })));
         if (data.length) setSelectedChat(data[0]);
       }
+
       setLoading(false);
-    })();
+    };
 
-    return () => socketRef.current?.disconnect();
-  }, [selectedChat]);
+    fetchChats();
 
-  // Join room on chat select
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
   useEffect(() => {
     if (selectedChat) {
       socketRef.current?.emit('join', { roomId: selectedChat.id });
-      setChats(prev => prev.map(c =>
-        c.id === selectedChat.id ? { ...c, unreadCount: 0 } : c));
+      setChats(prev =>
+        prev.map(c =>
+          c.id === selectedChat.id ? { ...c, unreadCount: 0 } : c
+        )
+      );
     }
   }, [selectedChat]);
 
-  // Autoscroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [selectedChat?.messages]);
 
   function handleIncoming(msg: Message) {
-    setChats(prev => prev.map(c => {
-      if (c.id === msg.chatId) {
-        const active = selectedChat?.id === msg.chatId;
-        return {
-          ...c,
-          messages: [...c.messages, msg],
-          unreadCount: active ? 0 : (c.unreadCount || 0) + 1
-        };
-      }
-      return c;
-    }));
+    setChats(prev =>
+      prev.map(c => {
+        if (c.id === msg.chatId) {
+          const isActive = selectedChat?.id === msg.chatId;
+          const updatedMessages = [...c.messages, msg];
+          return {
+            ...c,
+            messages: updatedMessages,
+            unreadCount: isActive ? 0 : (c.unreadCount || 0) + 1
+          };
+        }
+        return c;
+      })
+    );
+
     if (selectedChat?.id === msg.chatId) {
-      setSelectedChat(c => c ? ({ ...c, messages: [...c.messages, msg] }) : null);
+      setSelectedChat(prev => prev ? { ...prev, messages: [...prev.messages, msg] } : null);
     }
   }
 
-  // Sending msgs
-  const sendMessage = async (body: any) => {
+  const sendMessage = async (body: Partial<Message>) => {
     if (!selectedChat) return;
     const token = localStorage.getItem('token');
     const res = await fetch(`${API_BASE}/api/chats/${selectedChat.id}/messages`, {
@@ -125,17 +140,16 @@ const Chat: React.FC = () => {
       },
       body: JSON.stringify(body)
     });
-    if (!res.ok) return console.error('send failed');
+
+    if (!res.ok) return console.error('Send failed');
     const msg: Message = await res.json();
-    socketRef.current?.emit('message', {
-      ...msg,
-      roomId: selectedChat.id
-    });
+    socketRef.current?.emit('message', { ...msg, roomId: selectedChat.id });
   };
 
-  const handleSend = async (e?: any) => {
+  const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!newMessage.trim() && !mediaChunks.length) return;
+
     if (mediaChunks.length) {
       const blob = new Blob(mediaChunks);
       const url = URL.createObjectURL(blob);
@@ -157,16 +171,16 @@ const Chat: React.FC = () => {
     socketRef.current?.emit('typing', { roomId: selectedChat.id });
   };
 
-  // Search/filter
   const handleSearch = async (q: string) => {
     setSearchQuery(q);
     if (!q.trim()) return setSearchResults([]);
+
     const res = await fetch(`${API_BASE}/api/users?search=${q}`);
     if (!res.ok) return;
+
     const users: User[] = await res.json();
     let filtered = users.filter(u => u.id !== currentUser.id);
-    if (searchRole !== 'all')
-      filtered = filtered.filter(u => u.role === searchRole);
+    if (searchRole !== 'all') filtered = filtered.filter(u => u.role === searchRole);
     setSearchResults(filtered);
   };
 
@@ -180,6 +194,7 @@ const Chat: React.FC = () => {
       },
       body: JSON.stringify({ participantId: user.id })
     });
+
     if (!res.ok) return;
     const nc: Chat = await res.json();
     setChats(prev => [nc, ...prev.filter(c => c.id !== nc.id)]);
@@ -188,47 +203,50 @@ const Chat: React.FC = () => {
     setSearchQuery('');
   };
 
-  // Emoji picker
-  const onEmoji = (_: any, emojiObj: any) => {
-    setNewMessage(m => m + emojiObj.emoji);
+  const onEmoji = (_: any, emojiObj: { emoji: string }) => {
+    setNewMessage(prev => prev + emojiObj.emoji);
   };
 
-  // Recording
   const startRecording = () => {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(stream => {
         const mr = new MediaRecorder(stream);
         mediaRecorder.current = mr;
-        mr.ondataavailable = e => setMediaChunks(c => [...c, e.data]);
+        mr.ondataavailable = e => setMediaChunks(prev => [...prev, e.data]);
         mr.start();
         setRecording(true);
       });
   };
+
   const stopRecording = () => {
     mediaRecorder.current?.stop();
     setRecording(false);
   };
 
-  // Reactions
-  const toggleReaction = async (msg: Message, emo: string) => {
-    const has = msg.reactions?.[emo]?.includes(currentUser.id);
+  const toggleReaction = async (msg: Message, emoji: string) => {
+    const hasReacted = msg.reactions?.[emoji]?.includes(currentUser.id);
     await fetch(`${API_BASE}/api/chats/${msg.chatId}/messages/${msg.id}/reactions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emoji: emo, remove: has })
+      body: JSON.stringify({ emoji, remove: hasReacted })
     });
+
     msg.reactions = msg.reactions || {};
-    msg.reactions[emo] = msg.reactions[emo] || [];
-    if (has) msg.reactions[emo] = msg.reactions[emo].filter(id => id !== currentUser.id);
-    else msg.reactions[emo].push(currentUser.id);
-    setSelectedChat(sc => sc ? ({ ...sc }) : null);
+    msg.reactions[emoji] = msg.reactions[emoji] || [];
+
+    if (hasReacted) {
+      msg.reactions[emoji] = msg.reactions[emoji].filter(id => id !== currentUser.id);
+    } else {
+      msg.reactions[emoji].push(currentUser.id);
+    }
+
+    setSelectedChat(prev => prev ? { ...prev } : null);
   };
 
-  // Group messages by date
-  const grouped = selectedChat?.messages.reduce((acc: any, m) => {
-    const date = new Date(m.createdAt).toLocaleDateString();
+  const grouped: Record<string, Message[]> = selectedChat?.messages.reduce((acc, msg) => {
+    const date = new Date(msg.createdAt).toLocaleDateString();
     if (!acc[date]) acc[date] = [];
-    acc[date].push(m);
+    acc[date].push(msg);
     return acc;
   }, {} as Record<string, Message[]>) || {};
 
@@ -236,13 +254,11 @@ const Chat: React.FC = () => {
     <Container className="py-4">
       <h4 className="mb-4 text-center">TomiLink Chat</h4>
       <Row>
-        {/* LEFT PANEL */}
         <Col md={4}>
           <Card className="shadow rounded-4 mb-3">
             <Form.Select
               value={searchRole}
-              onChange={e =>
-                setSearchRole(e.target.value as any)}
+              onChange={e => setSearchRole(e.target.value as any)}
             >
               <option value="all">All Users</option>
               <option value="admin">Admin</option>
@@ -295,17 +311,9 @@ const Chat: React.FC = () => {
           </ListGroup>
         </Col>
 
-        {/* RIGHT PANEL */}
         <Col md={8}>
           <Card className="shadow rounded-4 border-0">
-            <Card.Body
-              className="p-3"
-              style={{
-                maxHeight: '60vh',
-                overflowY: 'auto',
-                backgroundColor: '#f9f9f9'
-              }}
-            >
+            <Card.Body className="p-3" style={{ maxHeight: '60vh', overflowY: 'auto', backgroundColor: '#f9f9f9' }}>
               {loading && (
                 <div className="text-center my-4">
                   <Spinner animation="border" variant="primary" />
@@ -322,8 +330,7 @@ const Chat: React.FC = () => {
                   {msgs.map(m => (
                     <div
                       key={m.id}
-                      className={`d-flex mb-3 ${m.sender.id === currentUser.id
-                        ? 'justify-content-end' : 'justify-content-start'}`}
+                      className={`d-flex mb-3 ${m.sender.id === currentUser.id ? 'justify-content-end' : 'justify-content-start'}`}
                     >
                       {m.sender.id !== currentUser.id && (
                         <BsPersonCircle size={28} className="me-2 text-secondary" />
@@ -341,21 +348,16 @@ const Chat: React.FC = () => {
                           <audio controls src={m.mediaUrl}></audio>
                         )}
                         {m.content && (
-                          <div className={`p-3 rounded-3 shadow-sm ${m.sender.id === currentUser.id
-                            ? 'bg-primary text-white' : 'bg-light text-dark'}`}
-                            style={{ maxWidth: '70%' }}
-                          >{m.content}</div>
+                          <div className={`p-3 rounded-3 shadow-sm ${m.sender.id === currentUser.id ? 'bg-primary text-white' : 'bg-light text-dark'}`} style={{ maxWidth: '70%' }}>
+                            {m.content}
+                          </div>
                         )}
-
                         <div className="mt-1">
                           <small style={{ opacity: 0.7, fontSize: '0.75rem' }}>
-                            {new Date(m.createdAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
+                            {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </small>
                           <div className="mt-1">
-                            {(m.reactions && Object.entries(m.reactions).map(([emo, arr]) => (
+                            {m.reactions && Object.entries(m.reactions).map(([emo, arr]) => (
                               <Button
                                 key={emo}
                                 size="sm"
@@ -365,7 +367,7 @@ const Chat: React.FC = () => {
                               >
                                 {emo} {arr.length}
                               </Button>
-                            )))}
+                            ))}
                             <Button
                               size="sm"
                               variant="outline-secondary"
@@ -403,7 +405,7 @@ const Chat: React.FC = () => {
                     onKeyDown={e => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
-                        handleSend(e);
+                        handleSend();
                       } else {
                         handleTyping();
                       }
@@ -416,7 +418,8 @@ const Chat: React.FC = () => {
                       hidden
                       accept="image/*"
                       onChange={e => {
-                        const file = e.target.files?.[0];
+                        const input = e.target as HTMLInputElement;
+                        const file = input.files?.[0];
                         if (file) {
                           const url = URL.createObjectURL(file);
                           sendMessage({
