@@ -1,0 +1,10 @@
+.home-bg {
+  background: linear-gradient(to bottom right, #1b2235, #2e3b55);
+  min-height: 100vh;
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+}
+
+.card h6 {
+  font-weight: 600;
+}
